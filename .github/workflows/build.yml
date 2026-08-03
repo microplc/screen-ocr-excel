@@ -1,0 +1,34 @@
+# 把本文件放到仓库的 .github/workflows/ 下。
+# 在 GitHub 仓库页面 Actions -> 选中本工作流 -> Run workflow,
+# 构建完成后到 "Actions -> 本次运行 -> 右上角 Artifacts" 下载 ScreenOCR-win
+name: build-exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.8 是最后一个官方支持 Win7 的 Python, 构建的 exe 才能跑在 Win7 上
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+
+      - name: 安装依赖
+        run: |
+          pip install pyautogui==0.9.54 Pillow==10.4.0 openpyxl==3.1.5 requests==2.32.3 pyinstaller==5.13.2
+
+      - name: 打包 exe
+        run: |
+          pyinstaller --noconfirm --clean --onedir --windowed --name ScreenOCR app/main.py
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenOCR
+          path: dist/ScreenOCR
