@@ -26,39 +26,35 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --onedir --windowed --name ScreenOCR app/main.py
 
-      - name: 下载并解压 Umi-OCR 引擎 (官方最新版, Rapid 引擎, 自动合并进包)
+            # Download latest official Umi-OCR (Rapid engine) and bundle it into the package.
+      - name: Download and bundle Umi-OCR engine
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/hiroi-sora/Umi-OCR/releases/latest" -Headers @{"User-Agent" = "ScreenOCR-build"}
-          $asset = $release.assets | Where-Object { $_.name -match "Rapid" -and $_.name -like "*.7z.exe" } | Select-Object -First 1
-          if (-not $asset) { throw "未找到 Umi-OCR Rapid 自解压包" }
-          Write-Host "下载: $($asset.name)"
+          $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/hiroi-sora/Umi-OCR/releases/latest" -Headers @{"User-Agent" = "ScreenOCR-build"}
+          $asset = $rel.assets | Where-Object { $_.name -match "Rapid" -and $_.name -like "*.7z.exe" } | Select-Object -First 1
+          if (-not $asset) { throw "no Rapid 7z.exe asset found in Umi-OCR latest release" }
+          Write-Host "downloading: $($asset.name)"
           $sfx = Join-Path $env:TEMP "umi.7z.exe"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $sfx
           $out = Join-Path $env:TEMP "umi_extract"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-
-          # 方式1: 用 runner 自带的 7-Zip 直接解压 (.7z.exe 本质是 7z 归档)
-          $seven = @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe") `
-                   | Where-Object { Test-Path $_ } | Select-Object -First 1
+          $seven = @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
           if ($seven) {
-            Write-Host "方式一: 使用 7-Zip 解压 ($seven)"
+            Write-Host "method 1: 7-Zip extract with $seven"
             & $seven x "-o$out" $sfx -y | Out-Null
           }
-
           $umiExe = Get-ChildItem -Path $out -Recurse -Filter "Umi-OCR.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $umiExe) {
-            # 方式二: 直接运行自解压包 (在其运行目录解压)
-            Write-Host "方式二: 运行自解压包"
+            Write-Host "method 2: run self-extracting archive"
             Push-Location $out
             & $sfx -y | Out-Null
             Pop-Location
             $umiExe = Get-ChildItem -Path $out -Recurse -Filter "Umi-OCR.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          if (-not $umiExe) { throw "解压失败: 未找到 Umi-OCR.exe ($out)" }
+          if (-not $umiExe) { throw "extract failed: Umi-OCR.exe not found in $out" }
           Copy-Item -Recurse $umiExe.DirectoryName "dist\ScreenOCR\Umi-OCR"
-          Write-Host "已合并: $($umiExe.DirectoryName)"
+          Write-Host "bundled: $($umiExe.DirectoryName)"
 
       - name: 上传产物 (含 Umi-OCR 引擎的完整包)
         uses: actions/upload-artifact@v4
