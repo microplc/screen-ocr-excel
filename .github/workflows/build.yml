@@ -1,6 +1,5 @@
-# 把本文件放到仓库的 .github/workflows/ 下。
-# 在 GitHub 仓库页面 Actions -> 选中本工作流 -> Run workflow,
-# 构建完成后到 "Actions -> 本次运行 -> 右上角 Artifacts" 下载 ScreenOCR-win
+# 构建 ScreenOCR.exe 并自动合并 Umi-OCR 引擎, 输出自包含的完整包。
+# 仓库 Actions -> Run workflow, 完成后到运行页底部 Artifacts 下载 ScreenOCR.zip
 name: build-exe
 
 on:
@@ -27,7 +26,23 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --onedir --windowed --name ScreenOCR app/main.py
 
-      - name: 上传产物
+      - name: 下载并解压 Umi-OCR 引擎 (官方最新版, Rapid 引擎, 自动合并进包)
+        shell: powershell
+        run: |
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/hiroi-sora/Umi-OCR/releases/latest" -Headers @{"User-Agent" = "ScreenOCR-build"}
+          $asset = $release.assets | Where-Object { $_.name -match "Rapid" -and $_.name -like "*.7z.exe" } | Select-Object -First 1
+          if (-not $asset) { throw "未找到 Umi-OCR Rapid 自解压包" }
+          Write-Host "下载: $($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:TEMP\umi.7z.exe"
+          $out = "$env:TEMP\umi_extract"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & "$env:TEMP\umi.7z.exe" -y "-o$out"
+          $umiDir = Get-ChildItem -Path $out -Recurse -Filter "Umi-OCR.exe" | Select-Object -First 1
+          if (-not $umiDir) { throw "解压失败, 未找到 Umi-OCR.exe" }
+          Copy-Item -Recurse $umiDir.DirectoryName "dist\ScreenOCR\Umi-OCR"
+          Write-Host "已合并: $($umiDir.DirectoryName)"
+
+      - name: 上传产物 (含 Umi-OCR 引擎的完整包)
         uses: actions/upload-artifact@v4
         with:
           name: ScreenOCR
