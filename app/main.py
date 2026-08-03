@@ -18,6 +18,7 @@
 """
 import base64
 import io
+import json
 import os
 import subprocess
 import sys
@@ -39,12 +40,6 @@ OCR_READY_TIMEOUT = 90          # 等待 OCR 引擎启动的最长时间(秒)
 OCR_REQUEST_TIMEOUT = 120       # 单次 OCR 请求超时(秒)
 OCR_RETRY = 3                   # OCR 请求失败重试次数
 PAGE_WAIT = 2.0                 # 点击"下一页"后等待页面刷新的秒数
-OCR_OPTIONS = {                 # Umi-OCR 识别参数
-    "ocr.language": "models/config_chinese.txt",  # 简体中文模型
-    "data.format": "text",                        # 只返回文本
-    "tbpu.parser": "single_line",                 # 单栏-总是换行: 每行文字单独一行
-    "ocr.cls": True,                              # 纠正文本方向
-}
 EXCEL_HEADER = ["页码", "行号", "识别内容"]
 # ---------------------------------------------------------------------------
 
@@ -76,14 +71,23 @@ class UmiEngine:
         self.log = log
         self.proc = None
         self.path = None
+        self.avail = {}          # 引擎支持的可选参数(get_options 结果)
 
     def url(self, api):
         return "%s:%d%s" % (UmiOCR_HOST, UmiOCR_PORT, api)
 
+    def _get(self, api):
+        r = requests.get(self.url(api), timeout=5)
+        return r.json()
+
     def is_up(self):
+        """端口上是否是 Umi-OCR(且支持 OCR 接口)。"""
         try:
-            requests.get(self.url("/api/ocr/get_options"), timeout=2)
-            return True
+            d = self._get("/api/ocr/get_options")
+            if isinstance(d, dict) and d:
+                self.avail = d
+                return True
+            return False
         except Exception:
             return False
 
@@ -91,7 +95,7 @@ class UmiEngine:
         """确保引擎运行, 返回 True/False。"""
         if self.is_up():
             self.log("OCR 引擎已在运行(端口 %d), 直接使用" % UmiOCR_PORT)
-            return True
+            return self._selftest()
         self.path = find_umi_exe()
         if not self.path:
             return False
@@ -101,7 +105,7 @@ class UmiEngine:
         while time.time() < deadline:
             if self.is_up():
                 self.log("OCR 引擎就绪")
-                return True
+                return self._selftest()
             time.sleep(0.5)
         return False
 
@@ -113,23 +117,72 @@ class UmiEngine:
                 pass
         self.proc = None
 
+    def _make_options(self):
+        """按引擎实际支持的参数构建 options(避免 Rapid/Paddle 参数不一致)。"""
+        out = {}
+        if "data.format" in self.avail:
+            out["data.format"] = "text"
+        if "tbpu.parser" in self.avail:
+            out["tbpu.parser"] = "single_line"
+        return out
+
+    def _post(self, payload):
+        headers = {"Content-Type": "application/json"}
+        return requests.post(self.url("/api/ocr"),
+                             data=json.dumps(payload, ensure_ascii=False),
+                             headers=headers, timeout=OCR_REQUEST_TIMEOUT)
+
+    @staticmethod
+    def _to_text(data):
+        """兼容 data 为纯文本(str)或文本块列表(dict)两种返回格式。"""
+        if isinstance(data, str):
+            return data
+        if isinstance(data, list):
+            buf = []
+            for blk in data:
+                if isinstance(blk, dict) and blk.get("text") is not None:
+                    buf.append(blk.get("text", "") + blk.get("end", ""))
+            return "".join(buf)
+        return ""
+
+    def _selftest(self):
+        """用一张空白小图自检, 提前暴露引擎/接口问题。"""
+        from PIL import Image
+        try:
+            probe = Image.new("RGB", (16, 16), (255, 255, 255))
+            text = self.ocr(probe)
+            self.log("引擎自检通过(返回 %d 字符)" % len(text))
+            return True
+        except Exception as e:
+            self.log("!! 引擎自检失败: %s" % e)
+            return False
+
     def ocr(self, img):
-        """识别一张图片, 返回识别文本(每行以\\n分隔)。识别失败抛异常。"""
+        """识别一张图片, 返回识别文本。识别失败抛异常。"""
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-        payload = {"base64": b64, "options": OCR_OPTIONS}
+        payload = {"base64": b64, "options": self._make_options()}
         last = ""
         for i in range(OCR_RETRY):
             try:
-                r = requests.post(self.url("/api/ocr"), json=payload,
-                                  timeout=OCR_REQUEST_TIMEOUT)
-                res = r.json()
+                res = self._post(payload).json()
                 code = res.get("code")
                 if code == 100:
-                    return res.get("data", "")
+                    return self._to_text(res.get("data"))
                 if code == 101:
                     return ""
+                if code == 803:
+                    # 服务端拒绝 options(可能不是标准 Umi-OCR 或引擎参数异常), 降级重发
+                    self.log("服务端拒绝 options(%s), 自动降级为不带参数重试" % res.get("data"))
+                    res2 = self._post({"base64": b64}).json()
+                    c2 = res2.get("code")
+                    if c2 == 100:
+                        return self._to_text(res2.get("data"))
+                    if c2 == 101:
+                        return ""
+                    last = "降级重试仍失败 code=%s: %s" % (c2, res2.get("data"))
+                    break
                 last = "引擎返回错误 code=%s: %s" % (code, res.get("data"))
             except Exception as e:
                 last = "请求异常: %s" % e
