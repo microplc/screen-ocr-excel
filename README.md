@@ -11,7 +11,7 @@ screen-ocr-excel/
 ├── app/
 │   └── main.py                # 主程序源码
 ├── build/
-│   └── build_win.bat          # Windows 一键构建脚本
+│   └── build_win.bat          # Windows 一键构建脚本(自动合并 Umi-OCR 引擎)
 ├── .github/workflows/build.yml # GitHub Actions 自动构建(推仓库即可, 无需本机装东西)
 ├── requirements.txt
 └── README.md
@@ -32,17 +32,17 @@ screen-ocr-excel/
 2. 仓库 `Actions` 页面 → 运行 `build-exe` 工作流。
 3. 完成后在 Actions 运行页右下角 **Artifacts** 下载 `ScreenOCR.zip`, 解压得到 exe。
 
-## 三、部署到 Win7(最终用户操作, 只需两步)
+## 三、部署到 Win7(最终用户操作, 只需一步)
 
-1. 下载 **Umi-OCR** 官方发行版(免费、解压即用、支持 Win7 x64):
-   - 国内:https://hiroi-sora.lanzoul.com/s/umi-ocr
-   - 或者 GitHub Releases:https://github.com/hiroi-sora/Umi-OCR/releases
-   解压后得到一个 `Umi-OCR` 文件夹。
-2. 把 `Umi-OCR` 文件夹放到 `ScreenOCR.exe` **同一层**(旁边)即可。
+构建产物是 **自包含完整包**:`dist\ScreenOCR\` 文件夹里已经包含 `ScreenOCR.exe` 和 `Umi-OCR` 引擎(构建时自动从官方下载合并)。最终用户只要:
 
-之后用户双击 `ScreenOCR.exe` 开始使用,程序会自动在后台拉起 Umi-OCR 引擎,无需手动打开。
+1. 下载 `ScreenOCR.zip` → 解压(得到 `ScreenOCR` 文件夹)。
+2. 整个文件夹拷到 Win7 电脑, 双击 `ScreenOCR.exe` 即可。
 
-> 若用户自己已手动打开 Umi-OCR, 程序会直接复用, 不再重复启动。
+程序会自动在后台拉起 Umi-OCR 引擎, 无需用户手动下载或拷贝任何东西。
+
+> 若网络/速度受限(构建时下载这个 100MB 引擎较慢), 也可只构建不含引擎的 exe,
+> 并把官方 Umi-OCR(Rapid 版)解压后的 `Umi-OCR` 文件夹放到 `ScreenOCR.exe` 旁边, 效果相同。
 
 ## 四、使用说明
 
@@ -59,7 +59,8 @@ Excel 每页三列:`页码 | 行号 | 识别内容`(每行文字一个单元格,
 
 ## 五、常见问题
 
-- **提示"未找到 OCR 引擎"**:确认 `Umi-OCR` 文件夹和 exe 在同一层;或者手动打开 Umi-OCR 再点开始。
+- **提示"未找到 OCR 引擎"**:一般不会发生(引擎已随包自带)。若出现, 确认 `ScreenOCR.exe` 旁边有 `Umi-OCR` 文件夹; 或者手动打开 Umi-OCR 再点开始。
+- **若用户自己已手动打开 Umi-OCR, 程序会直接复用, 不再重复启动。**
 - **识别乱码/语言不对**:打开 Umi-OCR, 在"文字识别 → 引擎"里切换语言库; 或修改 `main.py` 顶部 `OCR_OPTIONS` 的 `ocr.language`(`models/config_en.txt` 为英文)。
 - **页面等太久/太快**:修改 `main.py` 顶部 `PAGE_WAIT`(点下一页后等待秒数)。
 - **截图框别盖住"下一页"按钮**, 否则点击会被自己触发的前端干扰。
