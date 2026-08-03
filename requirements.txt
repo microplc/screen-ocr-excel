@@ -1,0 +1,5 @@
+pyautogui==0.9.54
+Pillow==10.4.0
+openpyxl==3.1.5
+requests==2.32.3
+pyinstaller==5.13.2
